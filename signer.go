@@ -8,40 +8,66 @@ import (
 )
 
 func SingleHash(in chan interface{}, out chan interface{}) {
+	mu := &sync.Mutex{}
+	loopWg := sync.WaitGroup{}
 	for input := range in {
-		dataInt, ok := input.(int)
-		if !ok {
-			panic("Could not convert data to int")
-		}
-		dataStr := strconv.Itoa(dataInt)
-		wg := sync.WaitGroup{}
-		wg.Add(2)
-		results := make([]string, 2)
+		input := input
+		loopWg.Add(1)
 		go func() {
-			results[0] = DataSignerCrc32(dataStr)
-			wg.Done()
+			dataInt, ok := input.(int)
+			if !ok {
+				panic("Could not convert data to int")
+			}
+			dataStr := strconv.Itoa(dataInt)
+			wg := sync.WaitGroup{}
+			wg.Add(2)
+			results := make([]string, 2)
+			go func() {
+				results[0] = DataSignerCrc32(dataStr)
+				wg.Done()
+			}()
+			go func() {
+				var dataSignerResult string
+				mu.Lock()
+				dataSignerResult = DataSignerMd5(dataStr)
+				mu.Unlock()
+				results[1] = DataSignerCrc32(dataSignerResult)
+				wg.Done()
+			}()
+			wg.Wait()
+			out <- results[0] + "~" + results[1]
+			loopWg.Done()
 		}()
-		go func() {
-			results[1] = DataSignerCrc32(DataSignerMd5(dataStr))
-			wg.Done()
-		}()
-		wg.Wait()
-		out <- results[0] + "~" + results[1]
 	}
+	loopWg.Wait()
 }
 
 func MultiHash(in chan interface{}, out chan interface{}) {
+	loopWg := sync.WaitGroup{}
 	for input := range in {
-		dataStr, ok := input.(string)
-		if !ok {
-			panic("Could not convert data to string")
-		}
-		var resultString string
-		for number := 0; number < 6; number++ {
-			resultString += DataSignerCrc32(strconv.Itoa(number) + dataStr)
-		}
-		out <- resultString
+		input := input
+		loopWg.Add(1)
+		go func() {
+			dataStr, ok := input.(string)
+			if !ok {
+				panic("Could not convert data to string")
+			}
+			results := make([]string, 6)
+			wg := sync.WaitGroup{}
+			for number := 0; number < 6; number++ {
+				wg.Add(1)
+				number := number
+				go func() {
+					results[number] = DataSignerCrc32(strconv.Itoa(number) + dataStr)
+					wg.Done()
+				}()
+			}
+			wg.Wait()
+			out <- strings.Join(results, "")
+			loopWg.Done()
+		}()
 	}
+	loopWg.Wait()
 }
 
 func CombineResults(in chan interface{}, out chan interface{}) {
