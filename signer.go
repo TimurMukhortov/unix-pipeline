@@ -1,9 +1,5 @@
 package main
 
-import (
-	"runtime"
-)
-
 func SingleHash(in chan interface{}, out chan interface{}) {
 
 }
@@ -17,13 +13,27 @@ func CombineResults(in chan interface{}, out chan interface{}) {
 }
 
 func ExecutePipeline(jobs ...job) {
-	inCh := make(chan interface{})
-	outCh := make(chan interface{})
-	for _, job := range jobs {
-		go job(inCh, outCh)
+	var (
+		inCh  chan interface{}
+		outCh chan interface{}
+	)
+	outCh = make(chan interface{})
+	close(outCh)
+	for _, j := range jobs {
 		inCh = outCh
 		outCh = make(chan interface{})
-		runtime.Gosched()
+		go func(in chan interface{}, out chan interface{}, j job) {
+			j(in, out)
+			close(out)
+		}(inCh, outCh, j)
+	}
+	for {
+		select {
+		case _, ok := <-outCh:
+			if !ok {
+				return
+			}
+		}
 	}
 }
 
